@@ -46,7 +46,7 @@ async function run() {
         const bookingsCollection = client.db('doctorsPortal').collection('bookings');
         const usersCollection = client.db('doctorsPortal').collection('users');
         const doctorsCollection = client.db('doctorsPortal').collection('doctors');
-      
+        const paymentsCollection = client.db('doctorsPortal').collection('payments');
       
       //Note: make sure verify Admin after verify JWT
       const verifyAdmin = async(req, res, next) => {
@@ -197,23 +197,41 @@ async function run() {
 
         //payment Stipes 
 
-        app.post('/create-payment-intent', async(req, res)=> {
-            const booking = req.body; 
-            const price = booking.price; 
-            const amount = price*100; 
-            const paymentIntent = await stipe.paymentIntends.create({
-                currency : 'usd', 
-                amount: amount , 
+        app.post('/create-payment-intent', async (req, res) => {
+            const booking = req.body;
+            const price = booking.price;
+            const amount = price * 100;
+
+            const paymentIntent = await stripe.paymentIntents.create({
+                currency: 'usd',
+                amount: amount,
                 "payment_method_types": [
                     "card"
-                  ]                
-            })
+                ]
+            });
             res.send({
                 clientSecret: paymentIntent.client_secret,
-              });
-          
+            });
+        });
+
+
+        app.post('/payments', async (req, res) =>{
+            const payment = req.body;
+            const result = await paymentsCollection.insertOne(payment);
+            const id = payment.bookingId
+            const filter = {_id: ObjectId(id)}
+            const updatedDoc = {
+                $set: {
+                    paid: true,
+                    transactionId: payment.transactionId
+                }
+            }
+            const updatedResult = await bookingsCollection.updateOne(filter, updatedDoc)
+            res.send(result);
         })
 
+
+  
 
 
 
