@@ -5,6 +5,10 @@ const jwt = require('jsonwebtoken');
 require('dotenv').config();
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const port = process.env.PORT || 5000;
+const nodemailer = require("nodemailer");
+const sgMail = require('@sendgrid/mail')
+const mg = require('nodemailer-mailgun-transport');
+sgMail.setApiKey(process.env.SENDGRID_API_KEY)
 
 const app = express();
 
@@ -47,9 +51,72 @@ async function run() {
         const usersCollection = client.db('doctorsPortal').collection('users');
         const doctorsCollection = client.db('doctorsPortal').collection('doctors');
         const paymentsCollection = client.db('doctorsPortal').collection('payments');
-      
-      //Note: make sure verify Admin after verify JWT
-      const verifyAdmin = async(req, res, next) => {
+
+
+        function sendBookingEmail(booking) {
+            const { email, treatment, appointmentDate, slot } = booking
+            // let transporter = nodemailer.createTransport({
+            //     host: 'smtp.sendgrid.net',
+            //     port: 587,
+            //     auth: {
+            //         user: "apikey",
+            //         pass: process.env.SENDGRID_API_KEY
+            //     }
+            //  })
+            // This is your API key that you retrieve from www.mailgun.com/cp (free up to 10K monthly emails)
+            const auth = {
+                auth: {
+                    api_key: process.env.EMAIL_SEND_KEY,
+                    domain: process.env.EMAIL_SEND_DOMAIN
+                }
+            }
+
+            const transporter = nodemailer.createTransport(mg(auth));
+
+            transporter.sendMail({
+                from: "rakibul.nayon@gmail.com", // verified sender email
+                to: email || "rakibul.nayon@gmail.com",
+                subject: `Your Appointment for ${treatment} is confirmed`, // Subject line
+                text: "Hello world!", // plain text body
+                html: `
+                    <h3>Your Appointment is confirmed</h3>
+                    <div>
+                        <p>Your Appointment for treatment ${treatment}</p>
+                        <p>Your Visit on ${appointmentDate}</p>
+                        <p>Thanks from Doctors Portal</p>
+                    </div>
+                `, // html body
+            }, function (error, info) {
+                if (error) {
+                    console.log('email send error',error);
+                } else {
+                    console.log('Email sent: ' + info.response);
+                }
+            });
+            // const msg = {
+            //     to: 'test@example.com', // Change to your recipient
+            //     from: 'test@example.com',  // Change to your verified sender
+            //     subject: 'Sending with SendGrid is Fun',
+            //     text: 'and easy to do anywhere, even with Node.js',
+            //     html: '<strong>and easy to do anywhere, even with Node.js</strong>',
+            //   }
+            //   sgMail
+            //     .send(msg)
+            //     .then(() => {
+            //       console.log('Email sent')
+            //     })
+            //     .catch((error) => {
+            //       console.error(error)
+            //     })
+
+
+        }
+
+
+
+
+        //Note: make sure verify Admin after verify JWT
+        const verifyAdmin = async (req, res, next) => {
             console.log('Inside verifyAdmin', req.decoded.email)
             const decodedEmail = req.decoded.email;
             const query = { email: decodedEmail };
@@ -59,16 +126,16 @@ async function run() {
                 return res.status(403).send({ message: 'forbidden access' })
             }
             next()
-      }
-      
-      
-      
-      
-      
-      
-      
-      
-      
+        }
+
+
+
+
+
+
+
+
+
         // Use Aggregate to query multiple collection and then merge data
         app.get('/appointmentOptions', async (req, res) => {
             const date = req.query.date;
@@ -136,9 +203,9 @@ async function run() {
             res.send(options);
         })
 
-        app.get('/appointmentSpecialty', async (req, res)=> {
+        app.get('/appointmentSpecialty', async (req, res) => {
             const query = {}
-            const result = await appointmentOptionCollection.find(query).project({name:1}).toArray()
+            const result = await appointmentOptionCollection.find(query).project({ name: 1 }).toArray()
             res.send(result)
         })
 
@@ -153,9 +220,9 @@ async function run() {
          * app.delete('/bookings/:id')
         */
         //payment : 
-        app.get('/bookings/:id', async(req, res) => {
-            const id= req.params.id; 
-            const query = {_id:ObjectId(id)}
+        app.get('/bookings/:id', async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: ObjectId(id) }
             const booking = await bookingsCollection.findOne(query)
             res.send(booking)
         })
@@ -192,6 +259,8 @@ async function run() {
             }
 
             const result = await bookingsCollection.insertOne(booking);
+            //send email about appointment confirmation 
+            sendBookingEmail(booking)
             res.send(result);
         });
 
@@ -215,11 +284,11 @@ async function run() {
         });
 
 
-        app.post('/payments', async (req, res) =>{
+        app.post('/payments', async (req, res) => {
             const payment = req.body;
             const result = await paymentsCollection.insertOne(payment);
             const id = payment.bookingId
-            const filter = {_id: ObjectId(id)}
+            const filter = { _id: ObjectId(id) }
             const updatedDoc = {
                 $set: {
                     paid: true,
@@ -231,7 +300,7 @@ async function run() {
         })
 
 
-  
+
 
 
 
@@ -297,9 +366,9 @@ async function run() {
 
         //Doctors Collection: 
 
-        app.get('/doctors',verifyJWT,verifyAdmin, async(req, res) => {
+        app.get('/doctors', verifyJWT, verifyAdmin, async (req, res) => {
             const query = {}
-            const doctors = await doctorsCollection.find(query).toArray(); 
+            const doctors = await doctorsCollection.find(query).toArray();
             res.send(doctors)
         })
 
@@ -307,17 +376,17 @@ async function run() {
 
 
 
-        app.post('/doctors',verifyJWT,verifyAdmin, async(req,res) => {
+        app.post('/doctors', verifyJWT, verifyAdmin, async (req, res) => {
             const doctor = req.body
             const result = await doctorsCollection.insertOne(doctor)
             res.send(result)
         })
 
         //Doctors Delete 
-        app.delete('/doctors/:id',verifyJWT,verifyAdmin, async(req,res) => {
-            const id = req.params.id; 
-            const filter = {_id:ObjectId(id)}; 
-            const result = await doctorsCollection.deleteOne(filter); 
+        app.delete('/doctors/:id', verifyJWT, verifyAdmin, async (req, res) => {
+            const id = req.params.id;
+            const filter = { _id: ObjectId(id) };
+            const result = await doctorsCollection.deleteOne(filter);
             res.send(result)
         })
 
